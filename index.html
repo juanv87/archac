@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ML → Factura</title>
+  <meta name="models" content="__MODELS__">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #EEF0EC;
+      --surface: #FAFBF8;
+      --ink: #1F2421;
+      --muted: #5E6660;
+      --line: #D3D8D0;
+      --saddle: #8A4B22;
+      --saddle-dark: #6E3A18;
+      --stitch: #C9A27A;
+      --error: #A3261B;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
+      font: 400 1rem/1.5 'Source Sans 3', system-ui, sans-serif;
+    }
+    h1, h2 { font-family: 'Montserrat', sans-serif; font-weight: 600; margin: 0; }
+    svg { width: 1.15em; height: 1.15em; flex: none; }
+    :focus-visible { outline: 2px solid var(--saddle); outline-offset: 2px; }
+
+    /* Landing: everything centered on both axes */
+    .landing {
+      min-height: 100vh; display: grid; place-content: center; justify-items: center;
+      gap: 2rem; padding: 2rem 1rem; text-align: center;
+    }
+    .landing h1 { font-size: clamp(1.75rem, 4vw, 2.75rem); line-height: 1.15; letter-spacing: -0.01em; max-width: 18ch; }
+    .landing p { margin: 0; color: var(--muted); max-width: 40ch; }
+    /* Dashed border reads as leather stitching */
+    .upload {
+      display: inline-flex; align-items: center; gap: .75rem; cursor: pointer;
+      padding: 1rem 1.75rem; border-radius: var(--radius);
+      background: var(--saddle); color: #fff; font-weight: 600; font-size: 1.05rem;
+      outline: 2px dashed var(--stitch); outline-offset: -7px;
+      transition: background .15s;
+    }
+    .upload:hover { background: var(--saddle-dark); }
+    .upload svg { width: 1.4em; height: 1.4em; }
+    /* Loading: the stitches start running around the button while the needle spins */
+    .upload { position: relative; }
+    .upload .spin { display: none; animation: spin .9s linear infinite; }
+    .upload.loading { cursor: progress; outline-color: transparent; background: var(--saddle-dark); }
+    .upload.loading .icon { display: none; }
+    .upload.loading .spin { display: block; }
+    .upload.loading::before {
+      content: ''; position: absolute; inset: 5px; pointer-events: none;
+      background:
+        linear-gradient(90deg, var(--stitch) 50%, transparent 0) repeat-x top / 12px 2px,
+        linear-gradient(90deg, var(--stitch) 50%, transparent 0) repeat-x bottom / 12px 2px,
+        linear-gradient(0deg, var(--stitch) 50%, transparent 0) repeat-y left / 2px 12px,
+        linear-gradient(0deg, var(--stitch) 50%, transparent 0) repeat-y right / 2px 12px;
+      animation: stitch .5s linear infinite;
+    }
+    @keyframes stitch { to { background-position: 12px 0, -12px 100%, 0 -12px, 100% 12px; } }
+    @keyframes spin { to { transform: rotate(1turn); } }
+    #file { position: absolute; opacity: 0; width: 1px; height: 1px; }
+    #file:focus-visible + .upload { box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--saddle); }
+    /* Loading log: each new line fades in, older ones fade back */
+    .progress { list-style: none; margin: -1rem 0 0; padding: 0; min-height: 4.5em; color: var(--muted); font-size: .95rem; }
+    .progress li { animation: fade-in .5s ease-out both; transition: opacity .4s; }
+    .progress li:not(:last-child) { opacity: .45; }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } }
+    .alert {
+      display: flex; gap: .75rem; align-items: flex-start; max-width: 32rem; text-align: left;
+      padding: .9rem 1rem; border: 1px solid rgb(163 38 27 / .3); border-left: 4px solid var(--error);
+      border-radius: var(--radius); background: #FBEDEB; color: var(--ink);
+      animation: fade-in .3s ease-out both;
+    }
+    .alert svg { width: 1.4em; height: 1.4em; color: var(--error); margin-top: .05rem; }
+    .alert strong { display: block; color: var(--error); }
+    .alert p { margin: .15rem 0 0; color: var(--ink); font-size: .95rem; }
+
+    /* Verification screen */
+    .review { display: none; max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 6rem; }
+    body.has-data .landing { display: none; }
+    body.has-data .review { display: block; }
+    .review header {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .review h1 { font-size: 1.5rem; }
+    .review header p { margin: .25rem 0 0; color: var(--muted); }
+    .btn-ghost {
+      display: inline-flex; align-items: center; gap: .5rem; cursor: pointer;
+      padding: .55rem 1rem; border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--surface); color: var(--ink); font: inherit; font-weight: 600;
+    }
+    .btn-ghost:hover { border-color: var(--saddle); color: var(--saddle); }
+
+    .layout { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+    .shot { position: sticky; top: 1rem; margin: 0; }
+    .shot img { width: 100%; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); }
+    .shot figcaption { font-size: .85rem; color: var(--muted); margin-top: .4rem; }
+
+    section { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.25rem; }
+    section + section { margin-top: 1rem; }
+    section h2 { font-size: 1rem; margin-bottom: 1rem; }
+    .item + .item { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: .9rem 1rem; }
+    .grid + .grid { margin-top: .9rem; }
+    .attrs { padding: .9rem; border-radius: 8px; background: var(--paper); }
+    .full { grid-column: 1 / -1; }
+
+    .field label { display: block; font-size: .85rem; font-weight: 600; color: var(--muted); margin-bottom: .3rem; }
+    .control { display: flex; border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; }
+    .control:focus-within { border-color: var(--saddle); box-shadow: 0 0 0 3px rgb(138 75 34 / .15); }
+    .control input { flex: 1; min-width: 0; border: 0; padding: .55rem .7rem; font: inherit; color: var(--ink); background: transparent; }
+    .control input:focus { outline: none; }
+    .copy {
+      display: grid; place-items: center; width: 2.5rem; border: 0; border-left: 1px solid var(--line);
+      background: transparent; color: var(--muted); cursor: pointer;
+    }
+    .copy:hover { color: var(--saddle); background: var(--paper); }
+    .copy.done { color: #2E7D4F; }
+    .total { display: inline-flex; align-items: center; }
+    .total .copy { height: 2.2rem; margin-left: .5rem; border: 1px solid var(--line); border-radius: 8px; }
+
+    .footer {
+      position: fixed; inset: auto 0 0 0; background: var(--surface); border-top: 1px solid var(--line);
+      display: none; padding: .85rem 1rem;
+    }
+    body.has-data .footer { display: block; }
+    .footer-inner { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    .total { font-size: 1.1rem; }
+    .total strong { font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 1.35rem; margin-left: .35rem; }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: .55rem; cursor: pointer;
+      padding: .75rem 1.4rem; border: 0; border-radius: var(--radius);
+      background: var(--saddle); color: #fff; font: inherit; font-weight: 600;
+    }
+    .btn-primary:hover { background: var(--saddle-dark); }
+
+    @media (max-width: 760px) {
+      .layout { grid-template-columns: 1fr; }
+      .shot { position: static; }
+      .shot img { max-height: 260px; object-fit: contain; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+      .upload.loading::before { animation: none; }
+      .upload .spin { animation-duration: 2.5s; }
+      .progress li, .alert { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="landing">
+    <h1>Venta de MercadoLibre a datos de factura</h1>
+    <p>Subí la captura de la venta y extraemos productos, precios y datos de envío.</p>
+    <div>
+      <input type="file" id="file" accept="image/jpeg,image/png,image/webp">
+      <label for="file" class="upload" id="upload">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" opacity=".3"/><path d="M21 12a9 9 0 0 0-9-9"/></svg>
+        <span id="upload-text" aria-live="polite">Seleccionar captura</span>
+      </label>
+    </div>
+    <ul id="progress" class="progress" aria-live="polite"></ul>
+    <div id="status"></div>
+  </main>
+
+  <main class="review">
+    <header>
+      <div>
+        <h1>Verificá los datos</h1>
+        <p>Corregí lo que haga falta antes de exportar.</p>
+      </div>
+      <label for="file" class="btn-ghost">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Cargar otra captura
+      </label>
+    </header>
+    <div class="layout">
+      <figure class="shot">
+        <img id="preview" alt="Captura cargada">
+        <figcaption>Captura original</figcaption>
+      </figure>
+      <form id="form" onsubmit="return false">
+        <section><h2>Productos</h2><div id="items"></div></section>
+        <section><h2>Envío</h2><div id="shipping" class="grid"></div></section>
+      </form>
+    </div>
+  </main>
+
+  <div class="footer">
+    <div class="footer-inner">
+      <span class="total" id="total-wrap">Total <strong>$ <span id="total">0</span></strong></span>
+      <button type="button" id="csv" class="btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Exportar CSV
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const SHIPPING_FIELDS = {
+      recipient_name: 'Recibe', shipping_type: 'Tipo de envío', street: 'Dirección',
+      postal_code: 'Código postal', city: 'Localidad', province: 'Provincia',
+    };
+    const ICON_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+    const $ = (id) => document.getElementById(id);
+    let uid = 0;
+
+    $('file').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      e.target.value = ''; // allow re-selecting the same file
+      document.body.classList.remove('has-data');
+      $('status').replaceChildren();
+      setLoading(true);
+      try {
+        const res = await fetch('/api/extract', { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        $('preview').src = URL.createObjectURL(file);
+        render(data);
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    // Disabling the input is what actually blocks the label from reopening the picker.
+    function setLoading(on) {
+      $('file').disabled = on;
+      $('upload').classList.toggle('loading', on);
+      $('upload').setAttribute('aria-disabled', on);
+      $('upload-text').textContent = on ? 'Leyendo la captura…' : 'Seleccionar captura';
+      on ? startProgress() : stopProgress();
+    }
+
+    // Models come from the server (comma-separated). The schedule mirrors the server's
+    // 20s per-model timeout, so the switch to the 2nd model is shown roughly when it happens.
+    // ponytail: client-side guess; the server switches instantly on 429/503. Stream real events if accuracy matters.
+    const MODELS = (document.querySelector('meta[name=models]')?.content || '').split(',').filter((m) => m && m !== '__MODELS__');
+    let progressTimers = [];
+    function startProgress() {
+      const [first = 'Gemini', second] = MODELS;
+      const steps = [
+        [0, `Enviando la captura a ${first}…`],
+        [3000, `${first} está leyendo los productos…`],
+        [8000, 'Buscando precios y datos de envío…'],
+        [14000, 'Se está tomando su tiempo, ya casi…'],
+      ];
+      if (second) steps.push(
+        [20000, `${first} está saturado, probando con ${second}…`],
+        [26000, `${second} está leyendo la captura…`],
+        [34000, 'Últimos detalles…'],
+      );
+      $('progress').replaceChildren();
+      progressTimers = steps.map(([ms, text]) => setTimeout(() => {
+        const li = document.createElement('li');
+        li.textContent = text;
+        $('progress').append(li);
+        while ($('progress').children.length > 3) $('progress').firstElementChild.remove();
+      }, ms));
+    }
+    function stopProgress() {
+      progressTimers.forEach(clearTimeout);
+      $('progress').replaceChildren();
+    }
+
+    function showError(message) {
+      const box = document.createElement('div');
+      box.className = 'alert';
+      box.setAttribute('role', 'alert');
+      box.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><div><strong>No se pudo leer la captura</strong><p></p></div>';
+      box.querySelector('p').textContent = message || 'Error desconocido. Probá de nuevo.';
+      $('status').replaceChildren(box);
+    }
+
+    // "Color: Nude | Talle: 100" -> [['Color','Nude'], ['Talle','100']]
+    function parseVariant(variant) {
+      return String(variant ?? '').split('|').map((p) => p.trim()).filter(Boolean).map((part, i) => {
+        const at = part.indexOf(':');
+        return at > 0 ? [part.slice(0, at).trim(), part.slice(at + 1).trim()] : [`Atributo ${i + 1}`, part];
+      });
+    }
+
+    function field(labelText, value, { dataset, ...attrs } = {}) {
+      const id = `f${uid++}`;
+      const wrap = document.createElement('div');
+      wrap.className = 'field';
+      const label = document.createElement('label');
+      label.htmlFor = id; label.textContent = labelText;
+      const control = document.createElement('div');
+      control.className = 'control';
+      const input = document.createElement('input');
+      Object.assign(input, { id, value: value ?? '', type: 'text' }, attrs);
+      Object.assign(input.dataset, dataset);
+      if (input.type === 'number') { input.step = 'any'; input.addEventListener('input', updateTotal); }
+      control.append(input, copyButton(labelText, () => input.value));
+      wrap.append(label, control);
+      return wrap;
+    }
+
+    function copyButton(labelText, getText) {
+      const copy = document.createElement('button');
+      copy.type = 'button'; copy.className = 'copy';
+      copy.title = copy.ariaLabel = `Copiar ${labelText}`;
+      copy.innerHTML = ICON_COPY;
+      copy.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(getText());
+        copy.classList.add('done'); copy.innerHTML = ICON_CHECK;
+        setTimeout(() => { copy.classList.remove('done'); copy.innerHTML = ICON_COPY; }, 1500);
+      });
+      return copy;
+    }
+
+    function grid(children, className = 'grid') {
+      const div = document.createElement('div');
+      div.className = className;
+      div.append(...children);
+      return div;
+    }
+
+    function render(data) {
+      $('items').replaceChildren(...data.items.map((item) => {
+        const article = document.createElement('article');
+        article.className = 'item';
+        const title = field('Producto', item.title, { name: 'title' });
+        title.classList.add('full');
+        article.append(grid([title]));
+        const attrs = parseVariant(item.variant);
+        if (attrs.length) {
+          article.append(grid(attrs.map(([k, v]) => field(k, v, { dataset: { key: k } })), 'grid attrs'));
+        }
+        article.append(grid([
+          field('Precio unitario', item.unit_price, { name: 'unit_price', type: 'number' }),
+          field('Cantidad', item.quantity, { name: 'quantity', type: 'number' }),
+        ]));
+        return article;
+      }));
+      $('shipping').replaceChildren(...Object.entries(SHIPPING_FIELDS).map(([key, text]) =>
+        field(text, data[key], { name: key })));
+      updateTotal();
+      document.body.classList.add('has-data');
+    }
+
+    function readForm() {
+      const items = [...document.querySelectorAll('.item')].map((el) => ({
+        title: el.querySelector('[name=title]').value,
+        attrs: [...el.querySelectorAll('[data-key]')].map((i) => [i.dataset.key, i.value]),
+        unit_price: el.querySelector('[name=unit_price]').value,
+        quantity: el.querySelector('[name=quantity]').value,
+      }));
+      const shipping = Object.fromEntries(Object.keys(SHIPPING_FIELDS).map((k) =>
+        [k, $('shipping').querySelector(`[name=${k}]`).value]));
+      return { items, shipping };
+    }
+
+    function updateTotal() {
+      const total = readForm().items.reduce((sum, i) => sum + Number(i.unit_price) * Number(i.quantity), 0);
+      $('total').textContent = total.toLocaleString('es-AR');
+      $('total').dataset.raw = total;
+    }
+
+    $('total-wrap').append(copyButton('Total', () => $('total').dataset.raw ?? '0'));
+
+    // ";" separator + BOM so Excel in es-AR opens it with columns and accents right.
+    // One column per variant attribute (union across items).
+    $('csv').addEventListener('click', () => {
+      const { items, shipping } = readForm();
+      const keys = [...new Set(items.flatMap((i) => i.attrs.map(([k]) => k)))];
+      const header = ['Producto', ...keys, 'Precio unitario', 'Cantidad', 'Subtotal', ...Object.values(SHIPPING_FIELDS)];
+      const rows = items.map((i) => [i.title,
+        ...keys.map((k) => i.attrs.find(([key]) => key === k)?.[1] ?? ''),
+        i.unit_price, i.quantity, Number(i.unit_price) * Number(i.quantity),
+        ...Object.keys(SHIPPING_FIELDS).map((k) => shipping[k])]);
+      const cell = (v) => `"${String(v).replaceAll('"', '""')}"`;
+      const csv = '﻿' + [header, ...rows].map((r) => r.map(cell).join(';')).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = `venta-${Date.now()}.csv`;
+      a.click();
+    });
+  </script>
+</body>
+</html>
